@@ -1,6 +1,8 @@
 import logging
 import sqlite3
+import time
 import openai
+from threading import Lock
 from telegram import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext
 from config import OPENAI_API_KEY
@@ -12,9 +14,12 @@ from utils import (
     fetch_payment_history, fetch_user_stats
 )
 
-# Initialize OpenAI API key
+# Initialize OpenAI API key and logger
 openai.api_key = OPENAI_API_KEY
 logger = logging.getLogger(__name__)
+
+# Initialize a global lock for database operations
+db_lock = Lock()
 
 # Database helper functions
 def get_user_balance(telegram_id: int) -> int:
@@ -26,12 +31,21 @@ def get_user_balance(telegram_id: int) -> int:
     return result[0] if result else 0
 
 def update_user_balance(telegram_id: int, amount: int):
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO users (telegram_id, balance) VALUES (?, 0)", (telegram_id,))
-    c.execute("UPDATE users SET balance = balance + ? WHERE telegram_id = ?", (amount, telegram_id))
-    conn.commit()
-    conn.close()
+    """Update the user's balance with a retry mechanism and global lock to handle database locks."""
+    for attempt in range(5):
+        try:
+            with db_lock:
+                conn = get_connection()
+                c = conn.cursor()
+                c.execute("INSERT OR IGNORE INTO users (telegram_id, balance) VALUES (?, 0)", (telegram_id,))
+                c.execute("UPDATE users SET balance = balance + ? WHERE telegram_id = ?", (amount, telegram_id))
+                conn.commit()
+                conn.close()
+            return
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Database locked on update_user_balance attempt {attempt}: {e}")
+            time.sleep(0.2)
+    logger.error("Failed to update user balance after several attempts.")
 
 def log_history(telegram_id: int, query: str, response: str):
     conn = get_connection()
@@ -165,15 +179,26 @@ def handle_purchase_callback(update: Update, context: CallbackContext):
         payment_request = invoice_data.get("payment_request", "Error generating invoice")
         payment_hash = invoice_data.get("payment_hash", "")
 
-        # Insert transaction into database
-        conn = get_connection()
-        c = conn.cursor()
-        c.execute("""
-            INSERT INTO transactions (telegram_id, invoice_id, payment_hash, amount, queries, status)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (telegram_id, payment_hash, payment_hash, satoshi, queries, "pending"))
-        conn.commit()
-        conn.close()
+        # Insert transaction into database with retry mechanism and global lock
+        for attempt in range(5):
+            try:
+                with db_lock:
+                    conn = get_connection()
+                    c = conn.cursor()
+                    c.execute("""
+                        INSERT INTO transactions (telegram_id, invoice_id, payment_hash, amount, queries, status)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (telegram_id, payment_hash, payment_hash, satoshi, queries, "pending"))
+                    conn.commit()
+                    conn.close()
+                break
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Database locked on handle_purchase_callback attempt {attempt}: {e}")
+                time.sleep(0.2)
+        else:
+            logger.error("Failed to insert transaction after several attempts.")
+            query.edit_message_text("Sorry, an error occurred while processing your purchase. Please try again later.")
+            return
 
         # Generate QR code for payment
         qr_image = generate_qr_code(payment_request)
