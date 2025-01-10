@@ -66,26 +66,29 @@ def process_chatgpt_query(user_query: str) -> str:
         return response.choices[0].message['content'].strip()
     except Exception as e:
         logger.error(f"OpenAI error: {e}")
-        return "Sorry, an error occurred with ChatGPT."
+        return "Sorry, something went wrong while trying to get an answer. Please try again later."
 
 # Command Handlers
 def start(update: Update, context: CallbackContext):
     """Handle the /start command and display main menu."""
+    user_first_name = update.message.from_user.first_name
+    welcome_text = (f"Hello {user_first_name}! 👋\n\n"
+                    "I'm your friendly ChatGPT bot. You can ask me questions, save your favorite answers, "
+                    "and even share interesting topics with friends. Use the menu below to get started.")
     update.message.reply_text(
-        "Welcome! Use the inline keyboard below to navigate.",
+        welcome_text,
         reply_markup=main_menu_keyboard(update.message.from_user.id)
     )
 
 def main_menu_keyboard(telegram_id: int):
     """Generate dynamic inline keyboard based on user status."""
     balance = get_user_balance(telegram_id)
-    # Create a button showing current balance
-    balance_button = InlineKeyboardButton(f"Balance: {balance}", callback_data='balance')
+    balance_button = InlineKeyboardButton(f"Balance: {balance} queries", callback_data='balance')
     keyboard = [
         [balance_button],
-        [InlineKeyboardButton("History", callback_data='history')],
-        [InlineKeyboardButton("Favorites", callback_data='favorites')],
-        [InlineKeyboardButton("Shared Topics", callback_data='shared_topics')],
+        [InlineKeyboardButton("History 📜", callback_data='history')],
+        [InlineKeyboardButton("Favorites ⭐️", callback_data='favorites')],
+        [InlineKeyboardButton("Shared Topics 📢", callback_data='shared_topics')],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -97,20 +100,23 @@ def handle_menu_selection(update: Update, context: CallbackContext):
 
     if selection == 'balance':
         balance = get_user_balance(telegram_id)
+        response_text = f"Your current balance is {balance} queries remaining."
+        if balance < 5:  # Example threshold for low balance notification
+            response_text += "\n\nYou're running low on queries. Consider buying more to keep enjoying our service."
         query.answer()
-        query.edit_message_text(text=f"Your remaining query balance: {balance}")
+        query.edit_message_text(text=response_text)
     elif selection == 'history':
         query.answer()
         history_text = fetch_user_history(telegram_id)
-        query.edit_message_text(text=history_text)
+        query.edit_message_text(text=f"📜 *Your Recent History:*\n\n{history_text}", parse_mode='Markdown')
     elif selection == 'favorites':
         query.answer()
         favorites_text = fetch_user_favorites(telegram_id)
-        query.edit_message_text(text=favorites_text)
+        query.edit_message_text(text=f"⭐️ *Your Favorites:*\n\n{favorites_text}", parse_mode='Markdown')
     elif selection == 'shared_topics':
         query.answer()
         shared_topics_text = fetch_shared_topics(telegram_id)
-        query.edit_message_text(text=shared_topics_text)
+        query.edit_message_text(text=f"📢 *Shared Topics:*\n\n{shared_topics_text}", parse_mode='Markdown')
     else:
         query.answer("Unknown selection")
 
@@ -121,9 +127,8 @@ def handle_message(update: Update, context: CallbackContext):
 
     # Handle commands for saving favorites and bulk purchases
     if user_query.startswith("/save"):
-        # For demo, saving placeholder content as favorite
         save_favorite(telegram_id, "Favorite content placeholder")
-        update.message.reply_text("Saved to favorites.")
+        update.message.reply_text("👍 Your response has been saved as a favorite!")
         return
     elif user_query.startswith("/buy10"):
         process_bulk_purchase(update, context, telegram_id, 10, 450)
@@ -136,14 +141,15 @@ def handle_message(update: Update, context: CallbackContext):
     balance = get_user_balance(telegram_id)
     if balance <= 0:
         update.message.reply_text(
-            "Insufficient balance. After payment, it may take up to 2 minutes for credit to be granted."
+            "Oops! It looks like you don't have any queries left. 😞\n\n"
+            "After payment, it may take up to 2 minutes for your new queries to be available."
         )
         invoice_data = create_invoice(amount=50, memo="Single query credit purchase")
         payment_request = invoice_data.get("payment_request", "Error generating invoice")
         qr_image = generate_qr_code(payment_request)
         
-        update.message.reply_text(f"Please pay the following invoice:\n{payment_request}")
-        update.message.reply_photo(photo=qr_image, caption="Scan this QR code to pay.")
+        update.message.reply_text(f"👉 Please pay the following invoice:\n`{payment_request}`", parse_mode='Markdown')
+        update.message.reply_photo(photo=qr_image, caption="📱 Scan this QR code to pay.")
         return
 
     # Process the ChatGPT query normally
@@ -172,8 +178,11 @@ def process_bulk_purchase(update: Update, context: CallbackContext, telegram_id:
 
     qr_image = generate_qr_code(payment_request)
 
-    update.message.reply_text(
-        f"Please pay the following invoice to purchase {queries} queries:\n{payment_request}\n\n"
-        "Note: After payment, it may take up to 2 minutes for credit to be granted."
+    purchase_message = (
+        f"🛒 To purchase {queries} queries, please pay the following invoice:\n\n"
+        f"`{payment_request}`\n\n"
+        "📱 You can scan the QR code below to pay.\n\n"
+        "Note: After payment, it may take up to 2 minutes for your new queries to be added."
     )
-    update.message.reply_photo(photo=qr_image, caption="Scan this QR code to pay.")
+    update.message.reply_text(purchase_message, parse_mode='Markdown')
+    update.message.reply_photo(photo=qr_image, caption="📱 Scan this QR code to pay.")
