@@ -1,15 +1,14 @@
 import logging
 import threading
 import time
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 from config import TELEGRAM_TOKEN
 from database import init_db, get_connection
 from handlers import (
-    start, handle_menu_selection, handle_message, update_user_balance,
-    payment_history, user_stats
+    start, handle_message, payment_history,
+    user_stats, handle_purchase_callback
 )
 from payments import check_payment
-from config import TELEGRAM_TOKEN
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,27 +18,22 @@ def check_pending_transactions(bot):
     while True:
         conn = get_connection()
         c = conn.cursor()
-        # Fetch all pending transactions
         c.execute("SELECT id, telegram_id, payment_hash, amount, queries, status FROM transactions WHERE status = 'pending'")
         pending_txns = c.fetchall()
         
         for txn in pending_txns:
             txn_id, telegram_id, payment_hash, amount, queries, status = txn
             if check_payment(payment_hash):
-                # Payment confirmed; update transaction status
                 c.execute("UPDATE transactions SET status = 'completed' WHERE id = ?", (txn_id,))
-                
-                # Credit the user's account with purchased queries
-                update_user_balance(telegram_id, queries)  
+                # Credit queries to user account
+                update_user_balance(telegram_id, queries)
                 conn.commit()
-                
-                # Send notification to the user
                 try:
                     bot.send_message(
                         chat_id=telegram_id,
                         text=(
                             f"✅ Thank you! Your payment has been received. "
-                            f"Your account has been credited with additional queries. 🎉\n\n"
+                            f"Your account has been credited with {queries} additional queries. 🎉\n\n"
                             "You can now continue asking questions!"
                         )
                     )
@@ -48,8 +42,6 @@ def check_pending_transactions(bot):
         
         conn.commit()
         conn.close()
-        
-        # Wait for 60 seconds before checking again
         time.sleep(60)
 
 def main():
@@ -60,8 +52,8 @@ def main():
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("paymenthistory", payment_history))
     dp.add_handler(CommandHandler("mystats", user_stats))
-    dp.add_handler(CallbackQueryHandler(handle_menu_selection))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    dp.add_handler(CallbackQueryHandler(handle_purchase_callback, pattern='^buy_'))
 
     updater.start_polling()
     threading.Thread(target=check_pending_transactions, args=(updater.bot,), daemon=True).start()
