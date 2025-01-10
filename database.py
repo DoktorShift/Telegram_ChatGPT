@@ -36,13 +36,14 @@ def init_db():
                     content TEXT,
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                  )''')
-    # Transactions table for tracking payments
+    # Transactions table for tracking payments with queries purchased
     c.execute('''CREATE TABLE IF NOT EXISTS transactions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     telegram_id INTEGER,
                     invoice_id TEXT,
                     payment_hash TEXT,
                     amount INTEGER,
+                    queries INTEGER,
                     status TEXT,
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                  )''')
