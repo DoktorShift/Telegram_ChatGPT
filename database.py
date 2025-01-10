@@ -1,8 +1,14 @@
 import sqlite3
 
 def get_connection():
-    """Create and return a new database connection."""
-    return sqlite3.connect('botdata.db')
+    """
+    Create and return a new database connection with WAL mode and increased timeout.
+    WAL mode allows concurrent reads and writes, reducing "database is locked" errors.
+    Increased timeout allows more time for transactions to complete.
+    """
+    conn = sqlite3.connect('botdata.db', timeout=60, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    return conn
 
 def init_db():
     """Initialize database tables if they don't exist."""
