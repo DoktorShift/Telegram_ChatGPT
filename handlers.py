@@ -90,7 +90,7 @@ def start(update: Update, context: CallbackContext):
         "Use the menu below to navigate through options."
     )
     menu_buttons = [
-        ['🔹 Balance', '💰 Buy Queries'],
+        ['❓ Questions Left', '💰 Buy Queries'],
         ['📜 History', '⭐️ Favorites'],
         ['📢 Shared Topics'],
         ['💳 Payment History', '📊 My Stats']
@@ -103,9 +103,9 @@ def handle_message(update: Update, context: CallbackContext):
     telegram_id = update.message.from_user.id
     text = update.message.text.strip().lower()
 
-    if text == "🔹 balance":
+    if text == "❓ questions left":
         balance = get_user_balance(telegram_id)
-        response = f"Your current balance is {balance} queries remaining."
+        response = f"You have {balance} queries remaining."
         if balance < 5:
             response += "\n\nYou're running low on queries. Consider buying more to keep enjoying our service."
         update.message.reply_text(response)
