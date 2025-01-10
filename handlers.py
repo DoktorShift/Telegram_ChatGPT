@@ -8,7 +8,8 @@ from database import get_connection
 from payments import create_invoice, check_payment
 from utils import (
     fetch_user_history, fetch_user_favorites,
-    fetch_shared_topics, generate_qr_code
+    fetch_shared_topics, generate_qr_code,
+    fetch_payment_history, fetch_user_stats
 )
 
 # Initialize OpenAI API key
@@ -101,7 +102,7 @@ def handle_menu_selection(update: Update, context: CallbackContext):
     if selection == 'balance':
         balance = get_user_balance(telegram_id)
         response_text = f"Your current balance is {balance} queries remaining."
-        if balance < 5:  # Example threshold for low balance notification
+        if balance < 5:
             response_text += "\n\nYou're running low on queries. Consider buying more to keep enjoying our service."
         query.answer()
         query.edit_message_text(text=response_text)
@@ -166,13 +167,13 @@ def process_bulk_purchase(update: Update, context: CallbackContext, telegram_id:
     payment_request = invoice_data.get("payment_request", "Error generating invoice")
     payment_hash = invoice_data.get("payment_hash", "")
 
-    # Log the transaction in the database
+    # Log the transaction in the database, including the number of queries purchased
     conn = get_connection()
     c = conn.cursor()
     c.execute("""
-        INSERT INTO transactions (telegram_id, invoice_id, payment_hash, amount, status)
-        VALUES (?, ?, ?, ?, ?)
-    """, (telegram_id, payment_hash, payment_hash, satoshi, "pending"))
+        INSERT INTO transactions (telegram_id, invoice_id, payment_hash, amount, queries, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (telegram_id, payment_hash, payment_hash, satoshi, queries, "pending"))
     conn.commit()
     conn.close()
 
@@ -186,3 +187,15 @@ def process_bulk_purchase(update: Update, context: CallbackContext, telegram_id:
     )
     update.message.reply_text(purchase_message, parse_mode='Markdown')
     update.message.reply_photo(photo=qr_image, caption="📱 Scan this QR code to pay.")
+
+def payment_history(update: Update, context: CallbackContext):
+    """Show the user their recent payment history."""
+    telegram_id = update.message.from_user.id
+    history = fetch_payment_history(telegram_id)
+    update.message.reply_text(f"💳 *Your Payment History:*\n\n{history}", parse_mode='Markdown')
+
+def user_stats(update: Update, context: CallbackContext):
+    """Show the user their personal statistics."""
+    telegram_id = update.message.from_user.id
+    stats = fetch_user_stats(telegram_id)
+    update.message.reply_text(f"📊 *Your Stats:*\n\n{stats}", parse_mode='Markdown')
