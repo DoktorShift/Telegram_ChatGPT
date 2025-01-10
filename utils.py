@@ -46,3 +46,46 @@ def generate_qr_code(data: str) -> io.BytesIO:
     img.save(bio, "PNG")
     bio.seek(0)
     return bio
+
+def fetch_payment_history(telegram_id: int) -> str:
+    """Retrieve the last 10 payment transactions for a user with query details."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT amount, queries, status, timestamp 
+        FROM transactions 
+        WHERE telegram_id = ? 
+        ORDER BY timestamp DESC 
+        LIMIT 10
+    """, (telegram_id,))
+    rows = c.fetchall()
+    conn.close()
+    if not rows:
+        return "You haven't made any payments yet."
+    history_lines = []
+    for amount, queries, status, ts in rows:
+        history_lines.append(f"{ts}: Amount {amount} satoshis for {queries} queries, Status: {status}")
+    return "\n".join(history_lines)
+
+def fetch_user_stats(telegram_id: int) -> str:
+    """Retrieve statistics for a specific user."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*), SUM(amount) FROM transactions WHERE telegram_id = ? AND status = 'completed'", (telegram_id,))
+    total_transactions, total_amount = c.fetchone()
+    c.execute("SELECT SUM(queries) FROM transactions WHERE telegram_id = ? AND status = 'completed'", (telegram_id,))
+    total_queries = c.fetchone()[0] or 0
+    
+    # Total searches made by the user
+    c.execute("SELECT COUNT(*) FROM history WHERE telegram_id = ?", (telegram_id,))
+    total_searches = c.fetchone()[0]
+    
+    conn.close()
+    
+    stats = [
+        f"Total Completed Transactions: {total_transactions}",
+        f"Total Amount Processed: {total_amount if total_amount else 0} satoshis",
+        f"Total Queries Purchased: {total_queries}",
+        f"Total Searches Made: {total_searches}"
+    ]
+    return "\n".join(stats)
