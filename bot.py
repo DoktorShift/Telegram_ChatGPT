@@ -6,7 +6,7 @@ from config import TELEGRAM_TOKEN
 from database import init_db, get_connection
 from handlers import (
     start, handle_message, payment_history,
-    user_stats, handle_purchase_callback
+    user_stats, handle_purchase_callback, update_user_balance
 )
 from payments import check_payment
 
@@ -25,7 +25,7 @@ def check_pending_transactions(bot):
             txn_id, telegram_id, payment_hash, amount, queries, status = txn
             if check_payment(payment_hash):
                 c.execute("UPDATE transactions SET status = 'completed' WHERE id = ?", (txn_id,))
-                # Credit queries to user account
+                # Use imported update_user_balance function with global lock in handlers.py
                 update_user_balance(telegram_id, queries)
                 conn.commit()
                 try:
